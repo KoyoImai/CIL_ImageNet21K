@@ -256,10 +256,11 @@ class BackboneResNet(nn.Module):
             if hasattr(layers, 'reset_parameters'):
                 layers.reset_parameters()
 
-    def update_fc(self):
+    def update_fc(self, cfg):
 
         # 新しいタスクのクラス数
-        num_classes = (self.opt.target_task + 1) * self.opt.cls_per_task
+        # num_classes = (self.opt.target_task + 1) * self.opt.cls_per_task
+        num_classes = cfg.continual.cls_per_task[cfg.continual.target_task]
 
         # 新しいクラス数に合わせてfc層を構築
         new_fc = self.generate_fc(self.dim_in, num_classes)

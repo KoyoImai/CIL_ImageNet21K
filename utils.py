@@ -109,3 +109,51 @@ def save_model(model, optimizer, opt, epoch, save_file):
     torch.save(state, save_file)
     del state
 
+
+
+
+# 学習途中のパラメータなどを読み込む
+def load_checkpoint(cfg, model, model2, optimizer, scheduler, filepath):
+    checkpoint = torch.load(filepath, map_location='cuda:{}'.format(cfg.ddp.local_rank))
+
+    model.module.load_state_dict(checkpoint['model'])
+    model2.module.load_state_dict(checkpoint['model2'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    scheduler.load_state_dict(checkpoint['scheduler'])
+
+    replay_indices = checkpoint['replay_indices']
+    target_task = checkpoint['target_task']
+    start_epoch = checkpoint['epoch'] + 1  # 次のエポックから開始
+
+    # RNGの再現性確保
+    torch.set_rng_state(checkpoint['rng_state']['torch'])
+    torch.cuda.set_rng_state_all(checkpoint['rng_state']['cuda'])
+    np.random.set_state(checkpoint['rng_state']['numpy'])
+    random.setstate(checkpoint['rng_state']['random'])
+
+    print(f"[INFO] Checkpoint loaded from {filepath}")
+    return replay_indices, target_task, start_epoch
+
+
+
+
+# 学習途中のパラメータを保存する関数
+def save_checkpoint(cfg, model, model2, optimizer, scheduler, replay_indices, target_task, epoch, filepath):
+    if cfg.ddp.local_rank == 0:  # rank0のみが保存
+        state = {
+            'model': model.module.state_dict(),  # DDPでは .module が必要
+            'model2': model2.module.state_dict(),  # DDPでは .module が必要
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
+            'replay_indices': replay_indices,
+            'target_task': target_task,
+            'epoch': epoch,
+            'rng_state': {
+                'torch': torch.get_rng_state(),
+                'cuda': torch.cuda.get_rng_state_all(),
+                'numpy': np.random.get_state(),
+                'random': random.getstate()
+            }
+        }
+        torch.save(state, filepath)
+        print(f"[INFO] Checkpoint saved to {filepath}")

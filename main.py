@@ -10,9 +10,11 @@ import torch
 import torch.nn as nn
 import torch.distributed as dist
 import torch.optim as optim
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 
-from utils import seed_everything, save_model, save_replay_indices_to_txt
+from preprocesses import pre_process
+from utils import seed_everything, save_model, save_replay_indices_to_txt, load_checkpoint, save_checkpoint
 from models import make_model
 from dataloaders import set_buffer, set_loader
 from schedulers import make_scheduler
@@ -57,8 +59,10 @@ def make_setup(cfg):
         from models.resnet_er import BackboneResNet
 
         model = BackboneResNet(name='resnet50', head='linear', feat_dim=128, seed=777, opt=cfg)
-        model2 = None
+        model2 = BackboneResNet(name='resnet50', head='linear', feat_dim=128, seed=777, opt=cfg)
         # print("model: ", model)
+
+        model = DDP(model.to(cfg.ddp.local_rank), device_ids=[cfg.ddp.local_rank])
 
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = optim.SGD(model.parameters(),
@@ -69,14 +73,6 @@ def make_setup(cfg):
     elif cfg.method.name in ["co2l"]:
         
         assert False
-
-    elif cfg.method.name in ["cclis"]:
-
-        assert False
-
-    elif cfg.method.name in ["prco"]:
-
-        assert False
     
     else:
 
@@ -84,9 +80,9 @@ def make_setup(cfg):
     
 
     if torch.cuda.is_available():
-        model = model.cuda()
-        if model2 is not None:
-            model2 = model2.cuda()
+        # model = model.cuda()
+        # if model2 is not None:
+        #     model2 = model2.cuda()
         criterion = criterion.cuda()
     
 
@@ -113,7 +109,7 @@ def main(cfg):
 
 
     # ===========================================
-    # データローダ作成の前処理
+    # データローダ作成やディレクトリ作成などの前処理
     # ===========================================
     preparation(cfg)
 
@@ -121,7 +117,6 @@ def main(cfg):
     # ===========================================
     # DDP
     # ===========================================
-    
     # DDP 使用の環境変数
     local_rank = int(os.environ["LOCAL_RANK"])
     use_ddp = local_rank != -1
@@ -131,7 +126,7 @@ def main(cfg):
     cfg.ddp.use_ddp = use_ddp
     cfg.ddp.world_size = int(os.environ['WORLD_SIZE'])
 
-    # DDP 使用
+    # DDP 使用の設定
     if use_ddp:
         dist.init_process_group(backend='nccl')
         torch.cuda.set_device(local_rank)
@@ -145,6 +140,7 @@ def main(cfg):
     # モデル，損失関数，Optimizer の作成
     # ===========================================
     model, model2, criterion, optimizer = make_setup(cfg)
+    # print("model: ", model)
 
 
     # バッファ内データのインデックス
@@ -157,37 +153,67 @@ def main(cfg):
 
     # ===========================================
     # 学習途中のパラメータがあれば読み込む
+    # 実装にあまり自信がないので可能な限り使用しない
     # ===========================================
+    # config で resume_path を指定できるようにする
+    resume_path = cfg.log.resume if hasattr(cfg.log, "resume") else None
 
+    if resume_path and os.path.exists(resume_path):
 
+        if cfg.ddp.local_rank == 0:
+            
+            # 再開モード
+            replay_indices, start_task, start_epoch = load_checkpoint(cfg, model, optimizer, scheduler, resume_path)
+        
+        # ここで全rankに同期
+        dist.barrier()
+        dist.broadcast_object_list([replay_indices, target_task, start_epoch], src=0)
+        use_resume = True
+    
+    else:
+        
+        # 初回学習
+        replay_indices = None
+        start_task = 0
+        start_epoch = 1
+        use_resume = False
 
 
 
     # ===========================================
     # 各タスクを順番に学習
     # ===========================================
-    for target_task in range(0, cfg.continual.n_task):
+    for target_task in range(start_task, cfg.continual.n_task):
 
         # 現在タスクの更新
         cfg.continual.target_task = target_task
         print('Start Training current task {}'.format(cfg.continual.target_task))
 
+        # 学習途中から再開しない場合に実行
+        if not use_resume:
 
-        # model2 のパラメーターを model1 のパラメータで上書きして固定
-        model2 = copy.deepcopy(model)
+            # model2 のパラメーターを model1 のパラメータで上書きして固定
+            model2 = copy.deepcopy(model)
 
-        # =====================================================
-        # リプレイバッファ内にあるデータのインデックスを獲得
-        # rank0のみで処理を実行し，各rankへ replay_indicesを配布する
-        # =====================================================
-        replay_indices = set_buffer(cfg, model, prev_indices=replay_indices)
+            # =====================================================
+            # リプレイバッファ内にあるデータのインデックスを獲得
+            # rank0のみで処理を実行し，各rankへ replay_indicesを配布する
+            # =====================================================
+            replay_indices = set_buffer(cfg, model, prev_indices=replay_indices)
 
 
-        # バッファ内データのインデックスを保存（検証や分析時に読み込むため）
-        if cfg.ddp.local_rank == 0:
-            save_replay_indices_to_txt(replay_indices=replay_indices,
-                                       save_path=os.path.join(cfg.log.mem_path, 'task_{target_task:03d}_replay.txt'.format(target_task=target_task))
-            )
+            # バッファ内データのインデックスを保存（検証や分析時に読み込むため）
+            if cfg.ddp.local_rank == 0:
+                save_replay_indices_to_txt(replay_indices=replay_indices,
+                                        save_path=os.path.join(cfg.log.mem_path, 'task_{target_task:03d}_replay.txt'.format(target_task=target_task))
+                )
+
+        else:
+            use_resume = False
+
+        # 新タスク開始時、エポック数を初期化
+        if target_task != start_task:
+            start_epoch = 1
 
 
         # =====================================================
@@ -197,9 +223,9 @@ def main(cfg):
 
 
         # =====================================================
-        # タスク開始後の前処理（ERなどは必要ないので後回し）
+        # タスク開始後の前処理
         # =====================================================
-        a = 1
+        pre_process(cfg=cfg, model=model, model2=model2, optimizer=optimizer, dataloader=dataloader)
 
 
         # =====================================================
@@ -213,23 +239,34 @@ def main(cfg):
         scheduler = make_scheduler(cfg, cfg.optimizer.train.epochs, dataloader, optimizer)
 
 
-        # # =====================================================
-        # # 学習の実行
-        # # =====================================================
-        # for epoch in range(1, cfg.optimizer.train.epochs+1):
+        # =====================================================
+        # 学習の実行
+        # =====================================================
+        for epoch in range(start_epoch, cfg.optimizer.train.epochs+1):
 
-        #     train(cfg=cfg, model=model, model2=model2, criterion=criterion, optimizer=optimizer, scheduler=scheduler, dataloader=dataloader, epoch=epoch)
+            dataloader.batch_sampler.set_epoch(epoch)
 
-        #     # modelのパラメータを保存
-        #     if cfg.ddp.local_rank == 0:
+            train(cfg=cfg, model=model, model2=model2, criterion=criterion, optimizer=optimizer, scheduler=scheduler, dataloader=dataloader, epoch=epoch)
 
-        #         # 分析・評価表の保存
-        #         dir_path = f"{cfg.log.model_path}/task{cfg.continual.target_task:02d}"
-        #         file_path = f"{dir_path}/model_epoch{epoch:03d}.pth"
-        #         torch.save(model.module.state_dict(), "model_weights.pth")
+            # modelのパラメータを保存
+            if cfg.ddp.local_rank == 0:
 
-        #         # 学習途中から再開するための保存
-        #         # （後から実装予定）
+                # 分析・評価表の保存
+                dir_path = f"{cfg.log.model_path}/task{cfg.continual.target_task:02d}"
+                file_path = f"{dir_path}/model_epoch{epoch:03d}.pth"
+                if not os.path.exists(dir_path):
+                    os.makedirs(dir_path)
+                torch.save(model.module.state_dict(), file_path)
+
+                # 学習途中から再開するためのチェックポイント
+                # checkpoint_path = os.path.join(cfg.log.model_path, f"task{target_task:02d}_epoch{epoch:03d}.pth")
+                checkpoint_path = os.path.join(cfg.log.model_path, f"task{target_task:02d}_resume.pth")
+                save_checkpoint(cfg, model, model2, optimizer, scheduler, replay_indices, target_task, epoch, checkpoint_path)
+
+                # assert False
+
+                # 学習途中から再開するための保存
+                # （後から実装予定）
             
         
         # # =====================================================

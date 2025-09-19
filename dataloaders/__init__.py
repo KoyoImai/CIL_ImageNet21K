@@ -20,40 +20,6 @@ from dataloaders.dataset_er import ImageNet21K_ER
 
 
 
-
-
-# ==============================================================
-# DDP使用のための共通へルパ
-# ==============================================================
-def build_laoder_ddp(cfg, dataset, batch_size, num_workers, is_train=True):
-
-
-    sampler = None
-    shuffle = is_train
-    drop_last = is_train
-
-    if cfg.ddp.use_ddp:
-        sampler  = DistributedSampler(dataset, shuffle=is_train, drop_last=is_train)
-        shuffle  = False     # Samplerがshuffleを担当
-        drop_last = is_train # 明示
-    
-
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,          # ← per-GPU（総バッチ=この値×world_size）
-        shuffle=shuffle,                # ← DDP時は False
-        sampler=sampler,                # ← DDP時のみ設定
-        num_workers=num_workers,
-        pin_memory=True,
-        persistent_workers=(num_workers > 0),
-        drop_last=drop_last,
-    )
-
-    return loader
-
-
-
-
 # ==============================================================
 # データセットの作成　〜　データローダーの作成までを実行
 # ==============================================================
@@ -92,6 +58,8 @@ def set_loader(cfg, model, replay_indices):
             train_dataset = ImageNet21K_ER(cfg, transforms=train_transforms, target_task=cfg.continual.target_task, train=True, replay=True)
         else:
             train_dataset = ImageNet21K_ER(cfg, transforms=train_transforms, target_task=cfg.continual.target_task, train=True, replay=False)
+
+
         
         # print("len(train_dataset): ", len(train_dataset))   # len(train_dataset):  78414
         
@@ -131,7 +99,7 @@ def set_loader(cfg, model, replay_indices):
         #     print("images.shape: ", images.shape)
         #     print("labels.shape: ", labels.shape)
 
-        #     assert False
+        #     break
 
 
         return train_loader
