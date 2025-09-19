@@ -1,0 +1,156 @@
+method:
+  name: er
+model:
+  type: resnet50
+dataset:
+  type: imagenet21k
+  num_classes: 15813
+  data_folder: /home/kouyou/datasets/
+  filelist: /home/kouyou/datasets/ImageNet21K/filelists/similar_order
+  size: 224
+optimizer:
+  train:
+    epochs: 100
+    start_epoch: 500
+    learning_rate: 0.0003
+    learning_rate_prototypes: 0.01
+    batch_size: 256
+    current_ratio: 0.7
+    weight_decay: 0.0001
+    momentum: 0.9
+  linear:
+    epoch: 100
+    learning_rate: 0.1
+scheduler:
+  type: cosine
+  warmup_epochs: 10
+  milestones:
+  - 30
+  - 60
+  - 90
+continual:
+  n_cls: 15813
+  cls_per_task:
+  - 92
+  - 323
+  - 217
+  - 58
+  - 942
+  - 410
+  - 105
+  - 161
+  - 142
+  - 29
+  - 132
+  - 265
+  - 175
+  - 214
+  - 551
+  - 231
+  - 253
+  - 244
+  - 243
+  - 387
+  - 156
+  - 189
+  - 54
+  - 83
+  - 86
+  - 112
+  - 872
+  - 187
+  - 78
+  - 22
+  - 97
+  - 117
+  - 145
+  - 70
+  - 67
+  - 280
+  - 149
+  - 91
+  - 158
+  - 67
+  - 36
+  - 49
+  - 48
+  - 99
+  - 235
+  - 42
+  - 49
+  - 25
+  - 56
+  - 109
+  - 642
+  - 1062
+  - 428
+  - 164
+  - 162
+  - 37
+  - 58
+  - 114
+  - 150
+  - 33
+  - 113
+  - 22
+  - 32
+  - 400
+  - 100
+  - 56
+  - 116
+  - 92
+  - 233
+  - 154
+  - 128
+  - 230
+  - 137
+  - 45
+  - 90
+  - 87
+  - 77
+  - 302
+  - 113
+  - 100
+  - 140
+  - 29
+  - 124
+  - 11
+  - 29
+  - 45
+  - 25
+  - 35
+  - 79
+  - 141
+  - 30
+  - 36
+  - 60
+  - 161
+  - 33
+  - 85
+  - 46
+  - 158
+  - 49
+  - 18
+  n_task: 100
+  mem_type: ring
+  mem_size: 50000
+  target_task: null
+  offline: false
+log:
+  name: null
+  base: default
+  model: model
+  result: result
+  base_path: null
+  model_path: null
+  explog_path: null
+  mem_path: null
+  result_path: null
+ddp:
+  local_rank: null
+  use_ddp: null
+  world_size: null
+seed: 777
+date: 20250913
+workers: 8
+print_freq: 10

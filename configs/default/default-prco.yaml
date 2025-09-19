@@ -1,0 +1,74 @@
+
+
+method: 
+  name: "prco"
+  hypara:
+    temp: 0.5
+    current_temp: 0.2
+    past_temp: 0.1
+    distill_type: "PRD"
+    distill_power: 0.6
+
+
+model:
+  type: "resnet18"
+  hidden_dim: 4096
+  output_dim: 1024
+
+
+dataset:
+  type: "imagenet21k"
+  num_classes: 10
+  data_folder: '/home/kouyou/Datasets/'
+  size: 32
+
+
+optimizer:
+  train:
+    epoch: 100
+    start_epoch: 500
+    learning_rate: 1.0
+    learning_rate_prototypes: 0.01 
+    batch_size: 512
+    weight_decay: 1e-4
+    momentum: 0.9
+  linear:
+    epoch: 100
+    learning_rate: 0.1
+
+
+continual:
+  n_cls: 15813
+  cls_per_task: 
+  n_task: 100
+  mem_type: "ring"
+  mem_size: 500
+  target_task: 
+  offline: False
+
+
+log:
+  name: 
+  base: "default"
+  model: "model"
+  result: "result"
+  base_path: 
+  model_path: 
+  explog_path: 
+  mem_path: 
+  result_path: 
+
+
+ddp:
+  local_rank: 
+  use_ddp: 
+  world_size: 
+
+
+seed: 777
+date: 2025_0913
+
+
+hydra:
+  run:
+    dir: outputs/my_experiment_name
