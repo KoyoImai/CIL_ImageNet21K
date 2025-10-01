@@ -69,6 +69,7 @@ log:
   explog_path: 
   mem_path: 
   result_path: 
+  resume: 
 
 
 ddp:
