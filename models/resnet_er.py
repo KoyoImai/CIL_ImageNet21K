@@ -260,10 +260,12 @@ class BackboneResNet(nn.Module):
 
         # 新しいタスクのクラス数
         # num_classes = (self.opt.target_task + 1) * self.opt.cls_per_task
-        num_classes = cfg.continual.cls_per_task[cfg.continual.target_task]
+        num_classes = sum(cfg.continual.cls_per_task[:cfg.continual.target_task+1])
+        print("num_classes: ", num_classes)
 
         # 新しいクラス数に合わせてfc層を構築
         new_fc = self.generate_fc(self.dim_in, num_classes)
+
 
         if self.head is not None:
             nb_output = self.head.out_features

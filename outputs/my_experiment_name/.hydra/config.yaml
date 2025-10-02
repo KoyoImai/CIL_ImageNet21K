@@ -10,9 +10,9 @@ dataset:
   size: 224
 optimizer:
   train:
-    epochs: 100
+    epochs: 500
     start_epoch: 500
-    learning_rate: 0.0003
+    learning_rate: 1.0
     learning_rate_prototypes: 0.01
     batch_size: 256
     current_ratio: 0.7
@@ -138,7 +138,7 @@ continual:
   offline: false
 log:
   name: null
-  base: default
+  base: default2
   model: model
   result: result
   base_path: null
@@ -146,6 +146,7 @@ log:
   explog_path: null
   mem_path: null
   result_path: null
+  resume: /home/kouyou/ContinualLearning/CIL/logs/er/default2_er_ring50000_imagenet21k_seed777_date20250913/model/task00_resume.pth
 ddp:
   local_rank: null
   use_ddp: null

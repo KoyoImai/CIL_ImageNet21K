@@ -14,7 +14,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 from preprocesses import pre_process
-from utils import seed_everything, save_model, save_replay_indices_to_txt, load_checkpoint, save_checkpoint
+from utils import seed_everything, save_model, save_replay_indices_to_txt
+from utils import load_checkpoint, save_checkpoint, peek_checkpoint, apply_checkpoint
 from models import make_model
 from dataloaders import set_buffer, set_loader
 from schedulers import make_scheduler
@@ -63,6 +64,7 @@ def make_setup(cfg):
         # print("model: ", model)
 
         model = DDP(model.to(cfg.ddp.local_rank), device_ids=[cfg.ddp.local_rank])
+        model2 = DDP(model2.to(cfg.ddp.local_rank), device_ids=[cfg.ddp.local_rank])
 
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = optim.SGD(model.parameters(),
@@ -151,32 +153,48 @@ def main(cfg):
 
 
 
-    # ===========================================
-    # 学習途中のパラメータがあれば読み込む
-    # 実装にあまり自信がないので可能な限り使用しない
-    # ===========================================
-    # config で resume_path を指定できるようにする
+    # ===============================================================================
+    # 学習途中のパラメータがある場合，まず学習状況（task idやエポックなど）を読み込む
+    # 実際のオブジェクトは後で読み込むのでここではパラメータの読み込みは行わない
+    # （実装にあまり自信がないので可能な限り使用しない）
+    # ===============================================================================
+    # config で resume_path を指定した場合に読み込む
     resume_path = cfg.log.resume if hasattr(cfg.log, "resume") else None
 
+    resume_meta = None
     if resume_path and os.path.exists(resume_path):
 
         if cfg.ddp.local_rank == 0:
             
             # 再開モード
-            replay_indices, start_task, start_epoch = load_checkpoint(cfg, model, optimizer, scheduler, resume_path)
+            # replay_indices, start_task, start_epoch = load_checkpoint(cfg, model, model2, optimizer, scheduler, resume_path)
+            resume_meta = peek_checkpoint(resume_path)
+            obj_list = [resume_meta]
+        else:
+            # 他 rank はプレースホルダ
+            obj_list = [None]
         
         # ここで全rankに同期
         dist.barrier()
-        dist.broadcast_object_list([replay_indices, target_task, start_epoch], src=0)
+        # print("resume_meta: ", resume_meta)
+        dist.broadcast_object_list(obj_list, src=0)
+
+        # 取り出す
+        resume_meta = obj_list[0]
+
         use_resume = True
+        replay_indices = resume_meta["replay_indices"]
+        start_task = resume_meta["start_task"]
+        start_epoch = resume_meta["start_epoch"]
     
     else:
         
         # 初回学習
+        use_resume = False
         replay_indices = None
         start_task = 0
         start_epoch = 1
-        use_resume = False
+        
 
 
 
@@ -189,32 +207,22 @@ def main(cfg):
         cfg.continual.target_task = target_task
         print('Start Training current task {}'.format(cfg.continual.target_task))
 
-        # 学習途中から再開しない場合に実行
-        if not use_resume:
 
-            # model2 のパラメーターを model1 のパラメータで上書きして固定
-            model2 = copy.deepcopy(model)
-
-            # =====================================================
-            # リプレイバッファ内にあるデータのインデックスを獲得
-            # rank0のみで処理を実行し，各rankへ replay_indicesを配布する
-            # =====================================================
+        # =====================================================
+        # リプレイデータの決定
+        # 学習途中から再開の場合はスキップ
+        # =====================================================
+        if use_resume and (target_task == start_task):
+            pass
+        else:
             replay_indices = set_buffer(cfg, model, prev_indices=replay_indices)
-
 
             # バッファ内データのインデックスを保存（検証や分析時に読み込むため）
             if cfg.ddp.local_rank == 0:
                 save_replay_indices_to_txt(replay_indices=replay_indices,
-                                        save_path=os.path.join(cfg.log.mem_path, 'task_{target_task:03d}_replay.txt'.format(target_task=target_task))
-                )
+                                        save_path=os.path.join(cfg.log.mem_path, 'task_{target_task:03d}_replay.txt'.format(target_task=target_task)))
 
-        else:
-            use_resume = False
-
-        # 新タスク開始時、エポック数を初期化
-        if target_task != start_task:
-            start_epoch = 1
-
+        
 
         # =====================================================
         # データローダの作成
@@ -225,7 +233,7 @@ def main(cfg):
         # =====================================================
         # タスク開始後の前処理
         # =====================================================
-        pre_process(cfg=cfg, model=model, model2=model2, optimizer=optimizer, dataloader=dataloader)
+        model, optimizer = pre_process(cfg=cfg, model=model, model2=model2, optimizer=optimizer, dataloader=dataloader)
 
 
         # =====================================================
@@ -237,6 +245,24 @@ def main(cfg):
         else:
             cfg.optimizer.train.epochs = original_epochs
         scheduler = make_scheduler(cfg, cfg.optimizer.train.epochs, dataloader, optimizer)
+
+
+
+        # =====================================================
+        # 学習途中のパラメータがある場合は，そのmeta情報の読み込み処理
+        # =====================================================
+        if not use_resume:
+
+            # model2 のパラメーターを model1 のパラメータで上書きして固定
+            model2 = copy.deepcopy(model)
+
+        else:
+            apply_checkpoint(cfg, model, model2, optimizer, scheduler, resume_meta)
+            use_resume = False
+
+        # 新タスク開始時、エポック数を初期化
+        if target_task != start_task:
+            start_epoch = 1
 
 
         # =====================================================
@@ -272,7 +298,7 @@ def main(cfg):
         # # =====================================================
         # # タスク終了時の後処理（ERなどは必要ないので後回し）
         # # =====================================================
-        b = 1
+        # b = 1
 
 
         # # =====================================================

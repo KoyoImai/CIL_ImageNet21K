@@ -7,8 +7,23 @@ import numpy as np
 import torch
 
 
-from utils import write_csv, AverageMeter
+from utils import write_csv, AverageMeter, write_csv_dict
 
+
+
+
+# 列の順序（ヘッダー）
+csv_headers = [
+    "epoch",
+    "iter",
+    "num_iters",
+    "batch_size",
+    "loss",
+    "loss_avg",
+    "acc",
+    "acc_avg",
+    "lr",
+]
 
 
 
@@ -32,6 +47,10 @@ def train_er(cfg, model, model2, criterion, optimizer, scheduler, dataloader, ep
 
 
     for idx, (images, labels, _, meta) in enumerate(dataloader):
+        
+        if cfg.ddp.local_rank == 0:
+            if idx == 0:
+                print("meta['files'][0]: ", meta['files'][0])
 
         # gpuが使用可能ならgpu上に配置
         if torch.cuda.is_available():
@@ -49,6 +68,7 @@ def train_er(cfg, model, model2, criterion, optimizer, scheduler, dataloader, ep
 
         # モデルにデータを入力して出力を取得
         y_pred = model(images)
+        # print("y_pred.shape: ", y_pred.shape)
 
         # 損失計算
         loss = criterion(y_pred, labels).mean()
@@ -67,6 +87,22 @@ def train_er(cfg, model, model2, criterion, optimizer, scheduler, dataloader, ep
 
         # 現在の学習率
         current_lr = optimizer.param_groups[0]['lr']
+
+
+        # ===== CSV に1行追記 =====
+        if cfg.ddp.local_rank == 0:
+            row = {
+                "epoch":      int(epoch),
+                "iter":       int(idx + 1),
+                "num_iters":  int(len(dataloader)),
+                "batch_size": int(bsz),
+                "loss":       float(losses.val),
+                "loss_avg":   float(losses.avg),
+                "acc":        float(accuracies.val),
+                "acc_avg":    float(accuracies.avg),
+                "lr":         float(current_lr),
+            }
+            write_csv_dict(f"{cfg.log.explog_path}/explog.csv", row, headers=csv_headers)
 
 
         # 学習状況の表示
