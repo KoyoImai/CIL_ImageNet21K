@@ -45,6 +45,11 @@ def train_er(cfg, model, model2, criterion, optimizer, scheduler, dataloader, ep
     cnt  = [0.] * sum(cfg.continual.cls_per_task[:cfg.continual.target_task])
     correct_task = 0.0
 
+    # --- DDP 初期化直後（各プロセス）---
+    local_rank = cfg.ddp.local_rank
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
 
     for idx, (images, labels, _, meta) in enumerate(dataloader):
         
@@ -54,8 +59,8 @@ def train_er(cfg, model, model2, criterion, optimizer, scheduler, dataloader, ep
 
         # gpuが使用可能ならgpu上に配置
         if torch.cuda.is_available():
-            images = images.cuda()
-            labels = labels.cuda()
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
         
         # print("images.shape: ", images.shape)
         # print("labels[0]: ", labels[0])

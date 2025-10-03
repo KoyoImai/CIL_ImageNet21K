@@ -146,7 +146,7 @@ log:
   explog_path: null
   mem_path: null
   result_path: null
-  resume: /home/kouyou/ContinualLearning/CIL/logs/er/default2_er_ring50000_imagenet21k_seed777_date20250913/model/task00_resume.pth
+  resume: /home/kouyou/ContinualLearning/CIL/logs/er/default2_er_ring50000_imagenet21k_seed777_date20250913/model/task02_resume.pth
 ddp:
   local_rank: null
   use_ddp: null

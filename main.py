@@ -13,7 +13,7 @@ import torch.optim as optim
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 
-from preprocesses import pre_process
+from preprocesses import pre_process, pre_process_resume
 from utils import seed_everything, save_model, save_replay_indices_to_txt
 from utils import load_checkpoint, save_checkpoint, peek_checkpoint, apply_checkpoint
 from models import make_model
@@ -55,6 +55,11 @@ def preparation(cfg):
 
 def make_setup(cfg):
 
+    # --- DDP 初期化直後（各プロセス）---
+    local_rank = cfg.ddp.local_rank  # 例: torch.distributed.launch が渡す
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
     if cfg.method.name in ["er"]:
 
         from models.resnet_er import BackboneResNet
@@ -85,7 +90,7 @@ def make_setup(cfg):
         # model = model.cuda()
         # if model2 is not None:
         #     model2 = model2.cuda()
-        criterion = criterion.cuda()
+        criterion = criterion.to(device)
     
 
     return model, model2, criterion, optimizer
@@ -232,8 +237,9 @@ def main(cfg):
 
         # =====================================================
         # タスク開始後の前処理
+        # ER系 では fc層 の追加を行うが use_resume==True の場合は省略
         # =====================================================
-        model, optimizer = pre_process(cfg=cfg, model=model, model2=model2, optimizer=optimizer, dataloader=dataloader)
+        model, optimizer = pre_process(cfg=cfg, model=model, model2=model2, optimizer=optimizer, dataloader=dataloader, use_resume=use_resume)
 
 
         # =====================================================
@@ -250,6 +256,7 @@ def main(cfg):
 
         # =====================================================
         # 学習途中のパラメータがある場合は，そのmeta情報の読み込み処理
+        # 学習途中からの再開でないならmodel2のパラメータをmodel1のパラメータで上書き
         # =====================================================
         if not use_resume:
 
@@ -257,6 +264,18 @@ def main(cfg):
             model2 = copy.deepcopy(model)
 
         else:
+
+            # -------------------------------------------------
+            # 学習再開時点までの head を段階的に再現（構造を揃える）
+            # これをしないと Optimizer のパラメーターが合わない
+            # -------------------------------------------------
+            model, optimizer = pre_process_resume(cfg=cfg, model=model, model2=model2, optimizer=optimizer, dataloader=dataloader, resume_meta=resume_meta)
+
+            # model2 のパラメーターを model1 のパラメータで上書きして固定
+            model2 = copy.deepcopy(model)
+
+
+
             apply_checkpoint(cfg, model, model2, optimizer, scheduler, resume_meta)
             use_resume = False
 

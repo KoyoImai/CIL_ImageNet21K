@@ -276,7 +276,7 @@ class BackboneResNet(nn.Module):
 
         del self.head
         self.head = new_fc
-
+        print("self.head.weight.shape: ", self.head.weight.shape)
         return list(self.head.parameters())
 
 

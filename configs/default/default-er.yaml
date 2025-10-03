@@ -69,7 +69,7 @@ log:
   explog_path: 
   mem_path: 
   result_path: 
-  resume: "/home/kouyou/ContinualLearning/CIL/logs/er/default2_er_ring50000_imagenet21k_seed777_date20250913/model/task00_resume.pth"
+  resume: "/home/kouyou/ContinualLearning/CIL/logs/er/default2_er_ring50000_imagenet21k_seed777_date20250913/model/task02_resume.pth"
 
 
 ddp:
